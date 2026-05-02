@@ -1,18 +1,25 @@
 name: Create Release
 
 on:
+    push:
+      branches:
+        - main
     workflow_dispatch:
       inputs:
         prerelease:
           description: Prerelease
           type: boolean
+          default: false
         bypassCheck:
           description: Bypass Version Check
           type: boolean
+          default: false
 
 env:
     PROJ_USERNAME: megapiggy
     PROJ_NAME: titlescreencommand
+    PRERELEASE: ${{ github.event.inputs.prerelease || 'false' }}
+    BYPASS_CHECK: ${{ github.event.inputs.bypassCheck || 'false' }}
 
 permissions:
   contents: write
@@ -23,82 +30,91 @@ jobs:
         outputs:
             version: ${{ steps.out.outputs.version }}
             exists: ${{ steps.out.outputs.exists }}
+            bypass: ${{ steps.bypass.outputs.bypass }}
         runs-on: ubuntu-latest
+
         steps:
             - name: Checkout
-              uses: "actions/checkout@v4"
-              
+              uses: actions/checkout@v4
+
             - name: Fetch
-              run: git fetch
+              run: git fetch --tags
 
             - name: Read mod_meta
               id: read-mod_meta
-              run: echo "mod_meta=$(< ./mod_meta.json sed ':a;N;$!ba;s/\n/ /g')" >> $GITHUB_OUTPUT
+              run: echo "mod_meta=$(jq -c . ./mod_meta.json)" >> $GITHUB_OUTPUT
 
             - name: Check For Release
               id: check-tag
-              run: echo "exists=$(git ls-remote --exit-code --tags origin ${{ env.TAG }} >/dev/null 2>&1 && echo true || echo false)" >> $GITHUB_OUTPUT
+              run: echo "exists=$(git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1 && echo true || echo false)" >> $GITHUB_OUTPUT
               env:
-                TAG: "${{fromJson(steps.read-mod_meta.outputs.mod_meta).Version}}"
-            
+                TAG: ${{ fromJson(steps.read-mod_meta.outputs.mod_meta).Version }}
+
             - name: Output Version Info
               id: out
-              run: | 
-                echo "version=${{fromJson(steps.read-mod_meta.outputs.mod_meta).Version}}" >> $GITHUB_OUTPUT
-                echo "exists=${{steps.check-tag.outputs.exists}}" >> $GITHUB_OUTPUT
+              run: |
+                echo "version=${{ fromJson(steps.read-mod_meta.outputs.mod_meta).Version }}" >> $GITHUB_OUTPUT
+                echo "exists=${{ steps.check-tag.outputs.exists }}" >> $GITHUB_OUTPUT
+
+            - name: Output Bypass Flag
+              id: bypass
+              run: echo "bypass=${{ env.BYPASS_CHECK }}" >> $GITHUB_OUTPUT
 
             - name: Error
-              if: ${{ steps.out.outputs.exists != 'false' && (!inputs.bypassCheck) }}
+              if: ${{ steps.out.outputs.exists != 'false' && steps.bypass.outputs.bypass != 'true' }}
               run: echo "::error file=mod_meta.json,title=Refusing to Release::Your mod was not released because there is already a release with the version in mod_meta.json"
+
     build:
         needs: pre_job
-        if: ${{ (needs.pre_job.outputs.version != '0.0.0') && (needs.pre_job.outputs.exists == 'false') || (inputs.bypassCheck) }}
+        if: ${{ (needs.pre_job.outputs.version != '0.0.0') && (needs.pre_job.outputs.exists == 'false' || needs.pre_job.outputs.bypass == 'true') }}
         name: Create Release
         runs-on: windows-latest
+
         steps:
             - name: Checkout
-              uses: "actions/checkout@v4"
+              uses: actions/checkout@v4
 
             - name: Setup .NET
-              uses: "actions/setup-dotnet@v4"
-              
+              uses: actions/setup-dotnet@v4
+
             - name: Remove .csproj.user
-              run: rm ${{ env.PROJ_NAME }}.csproj.user
+              shell: bash
+              run: rm -f "${{ env.PROJ_NAME }}.csproj.user"
 
             - name: Build Mod
               run: dotnet build -c Release
 
             - name: Upload Artifact
-              uses: "actions/upload-artifact@v4"
+              uses: actions/upload-artifact@v4
               with:
                 name: "${{ env.PROJ_USERNAME }}.${{ env.PROJ_NAME }}"
                 path: "./bin/Release"
+
     upload:
         needs: [build, pre_job]
         name: Upload Release
         runs-on: ubuntu-latest
+
         steps:
             - name: Download artifact
               uses: actions/download-artifact@v4
               with:
                 name: "${{ env.PROJ_USERNAME }}.${{ env.PROJ_NAME }}"
                 path: "${{ env.PROJ_USERNAME }}.${{ env.PROJ_NAME }}"
-        
+
             - name: Zip Asset
               run: |
-                cd ${{ env.PROJ_USERNAME }}.${{ env.PROJ_NAME }}/
-                zip -r ${{ env.PROJ_USERNAME }}.${{ env.PROJ_NAME }}.zip *
-                mv ${{ env.PROJ_USERNAME }}.${{ env.PROJ_NAME }}.zip ..
-                cd ..
+                cd "${{ env.PROJ_USERNAME }}.${{ env.PROJ_NAME }}"
+                zip -r "../${{ env.PROJ_USERNAME }}.${{ env.PROJ_NAME }}.zip" *
 
             - name: Create Release
-              uses: "ncipollo/release-action@v1"
+              uses: ncipollo/release-action@v1
               with:
                 allowUpdates: true
                 commit: ${{ github.ref_name }}
                 tag: ${{ needs.pre_job.outputs.version }}
                 name: v${{ needs.pre_job.outputs.version }}
                 omitBodyDuringUpdate: true
-                artifacts: "${{ env.PROJ_USERNAME}}.${{ env.PROJ_NAME }}.zip"
+                artifacts: "${{ env.PROJ_USERNAME }}.${{ env.PROJ_NAME }}.zip"
                 draft: true
-                prerelease: ${{ inputs.prerelease }}
+                prerelease: ${{ env.PRERELEASE }}
