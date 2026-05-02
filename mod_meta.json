@@ -2,8 +2,8 @@
 	"Author": "MegaPiggy",
 	"Name": "Title Screen Command",
 	"ModGUID": "megapiggy.titlescreencommand",
-	"Version": "1.0.0",
+	"Version": "1.0.1",
 	"ModAssembly": "TitleScreenCommand.dll",
-	"MinWinchVersion": "0.5.0",
+	"MinWinchVersion": "0.6.0",
 	"ApplyPatches": true
 }
