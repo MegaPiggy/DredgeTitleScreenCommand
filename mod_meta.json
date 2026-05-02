@@ -5,6 +5,5 @@
 	"Version": "1.0.0",
 	"ModAssembly": "TitleScreenCommand.dll",
 	"MinWinchVersion": "0.5.0",
-	"Entrypoint": "TitleScreenCommand.Main/Initialize",
 	"ApplyPatches": true
 }
